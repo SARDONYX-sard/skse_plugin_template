@@ -1,0 +1,67 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "*"
+
+env:
+  CARGO_TERM_COLOR: always
+  MOD_NAME: rust_skse_sample
+
+jobs:
+  release:
+    permissions:
+      contents: write
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+    runs-on: ${{ matrix.job.os }}
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+      - name: Rust setup
+        uses: dtolnay/rust-toolchain@stable
+      - name: Rust cache
+        uses: Swatinem/rust-cache@v2.7.8
+        with:
+          prefix-key: cargo-debug-${{ matrix.job.target }}
+
+      - name: Build dll
+        run: cargo xtask build --dest-mode root --release
+
+      - name: Package release zip
+        shell: pwsh
+        run: |
+          $source = "${{ github.workspace }}/build/mods/${env:MOD_NAME}"
+          $destination = "${{ github.workspace }}/build/${env:MOD_NAME}-${{ github.ref_name }}.zip"
+          Compress-Archive -Path "$source\*" -DestinationPath $destination -Force
+
+      - name: Upload release zip as artifact
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: ${{ env.MOD_NAME }}-zip
+          path: ${{ github.workspace }}/build/${env:MOD_NAME}-${{ github.ref_name }}.zip
+
+      - name: Create GitHub Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.ref_name }}
+          release_name: Release ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+
+      - name: Upload zip to Release
+        uses: actions/upload-release-asset@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          upload_url: ${{ steps.create_release.outputs.upload_url }}
+          asset_path: ${{ github.workspace }}/build/${{ env.MOD_NAME }}-${{ github.ref_name }}.zip
+          asset_name: ${{ env.MOD_NAME }}-${{ github.ref_name }}.zip
+          asset_content_type: application/zip
